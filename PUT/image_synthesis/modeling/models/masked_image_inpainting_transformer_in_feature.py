@@ -12,10 +12,10 @@ import torch.nn.functional as F
 import time
 
 
-from image_synthesis.utils.misc import instantiate_from_config
-from image_synthesis.modeling.utils.misc import get_token_type
-from image_synthesis.distributed.distributed import get_local_rank
-from image_synthesis.modeling.utils.misc import logits_top_k
+from put.PUT.image_synthesis.utils.misc import instantiate_from_config
+from put.PUT.image_synthesis.modeling.utils.misc import get_token_type
+from put.PUT.image_synthesis.distributed.distributed import get_local_rank
+from put.PUT.image_synthesis.modeling.utils.misc import logits_top_k
 
 
 class FullAttention(nn.Module):

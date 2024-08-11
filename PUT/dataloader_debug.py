@@ -2,6 +2,7 @@ import argparse
 import os
 import warnings
 import time
+from PIL import Image
 
 import cv2
 import numpy as np
@@ -108,7 +109,8 @@ def get_args():
 
 
 def main():
-    config = load_yaml_config("/data/zhujinxian/code/put/PUT/configs/put_cvpr2022/sintel/p_vqvae_sintel.yaml")
+    cwd = os.getcwd()
+    config = load_yaml_config(cwd+"/configs/put_cvpr2022/sintel/p_vqvae_sintel.yaml")
     args = get_args()
 
     # get logger
@@ -117,14 +119,27 @@ def main():
 
     dataloader_info = build_dataloader(config, args)
     for itr, batch in enumerate(dataloader_info['train_loader']):
-        #print(itr)
-        #print(batch)
-        file_path="/data/zhujinxian/code/put/PUT/data/sintel/sintel_tensor/"+str(itr)+".png"
-        tensor = batch['image']
-        numpy_array = tensor.cpu().numpy()
-        #np.save(file_path, numpy_array)
-        numpy_array = np.transpose(numpy_array, (2, 3, 1, 0)).squeeze()
-        cv2.imwrite(file_path, numpy_array)
+        #保存修改过的图片
+        for key in batch:
+            tensor=batch[key]
+            numpy_array = tensor.cpu().numpy()
+
+            file_path=cwd+"/data/sintel/version2/"+key+"/"+str(itr)+".npy"
+            np.save(file_path, numpy_array)
+            if key=="image" or key =="ori_image" or key=="mask":
+                numpy_array=numpy_array.astype(np.uint8)
+                numpy_array= np.squeeze(numpy_array, axis=0)  # 现在形状为 (3, 436, 1024)
+                numpy_array = numpy_array.transpose(1,2, 0)
+                if key=='mask':
+                    numpy_array = np.squeeze(numpy_array, axis=2)
+                    numpy_array=numpy_array*255
+                    image = Image.fromarray(numpy_array, mode='L')
+                else:
+                    # 现在形状为 (1046, 436, 3)
+                    image = Image.fromarray(numpy_array)
+                file_path=cwd+"/data/sintel/version2/"+key+"v/"+str(itr)+".png"
+                # cv2.imwrite(file_path, numpy_array)
+                image.save(file_path)
 
 
 if __name__ == '__main__':

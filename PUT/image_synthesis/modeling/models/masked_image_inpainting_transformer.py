@@ -14,12 +14,12 @@ from timm.models.layers import DropPath, trunc_normal_
 from timm.models.layers import trunc_normal_ as __call_trunc_normal_
 
 
-from image_synthesis.utils.misc import instantiate_from_config
-from image_synthesis.modeling.utils.misc import get_token_type
-from image_synthesis.distributed.distributed import get_local_rank
-from image_synthesis.modeling.utils.misc import logits_top_k, pixel_unshuffle, pixel_shuffle
-from image_synthesis.modeling.modules.losses.poly_loss import PolyLoss
-from image_synthesis.modeling.modules.losses.label_smoothing_loss import LabelSmoothingLoss
+from put.PUT.image_synthesis.utils.misc import instantiate_from_config
+from put.PUT.image_synthesis.modeling.utils.misc import get_token_type
+from put.PUT.image_synthesis.distributed.distributed import get_local_rank
+from put.PUT.image_synthesis.modeling.utils.misc import logits_top_k, pixel_unshuffle, pixel_shuffle
+from put.PUT.image_synthesis.modeling.modules.losses.poly_loss import PolyLoss
+from put.PUT.image_synthesis.modeling.modules.losses.label_smoothing_loss import LabelSmoothingLoss
 
 
 def trunc_normal_(tensor, mean=0., std=1.):

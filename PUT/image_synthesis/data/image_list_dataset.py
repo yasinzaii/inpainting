@@ -250,15 +250,17 @@ class ImageListDataset(Dataset):
             if 'sketch_map' in data:
                 maps.append(data['sketch_map'])
                 map_keys.append('sketch_map')
-            if len(maps) > 0:
-                augmented_data = self.preprocessor(image=image, masks=maps)
-            else:
-                augmented_data = self.preprocessor(image=image)
-            data['image'] = np.transpose(augmented_data['image'].astype(np.float32), (2, 0, 1)) # 3 x H x W
-            for i in range(len(map_keys)):
-                # import pdb; pdb.set_trace()
-                data[map_keys[i]] = augmented_data['masks'][i].astype(np.float32)[None, :, :] # 1 x H x W
-
+            #不对光流做crop和resize
+            # if len(maps) > 0:
+            #     augmented_data = self.preprocessor(image=image, masks=maps)
+            # else:
+            #     augmented_data = self.preprocessor(image=image)
+            # data['image'] = np.transpose(augmented_data['image'].astype(np.float32), (2, 0, 1)) # 3 x H x W
+            # for i in range(len(map_keys)):
+            #     # import pdb; pdb.set_trace()
+            #     data[map_keys[i]] = augmented_data['masks'][i].astype(np.float32)[None, :, :] # 1 x H x W
+            data['image'] = np.transpose(data['image'].astype(np.float32), (2, 0, 1)) # 3 x H x W
+            data['ori_image'] = data['image'].copy()
         else: # the following code is not used
             h, w, _ = data['image'].shape
             coord = (np.arange(h*w).reshape(h,w,1)/(h*w)).astype(np.float32)
@@ -282,7 +284,7 @@ class ImageListDataset(Dataset):
 
             if self.multi_image_mask:
                 data['image'] = data['image'] * data['mask'].astype(np.float32)
-        
+
         # data['image_hr'] = data['image'].copy()
         # data['mask_hr'] = data['mask'].copy()
         # image_lr = Image.fromarray(np.transpose(data['image'].astype(np.uint8), (1,2,0))).resize((256,256), resample=Image.BILINEAR)
@@ -294,7 +296,9 @@ class ImageListDataset(Dataset):
             data_out = {}
             for k in self.return_data_keys:
                 data_out[k] = data[k]
-
+            data_out['max_flow'] = data['max_flow']
+            data_out['ori_image'] = data['ori_image']
+            data_out['ori_flow']=data['ori_flow']
             return data_out
         else:
             return data
