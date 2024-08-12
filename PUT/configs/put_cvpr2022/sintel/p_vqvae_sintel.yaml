@@ -112,7 +112,7 @@ dataloader:
         im_preprocessor_config:
           target: image_synthesis.data.utils.image_preprocessor.SimplePreprocessor
           params:
-            size: [1046, 256]
+            size: [256, 256]
             smallest_max_size: 264
             random_crop: True
             horizon_flip: True
@@ -145,5 +145,5 @@ dataloader:
         im_preprocessor_config:
           target: image_synthesis.data.utils.image_preprocessor.SimplePreprocessor
           params:
-            size: [1046, 436]
+            size: [256, 256]
             smallest_max_size: 256

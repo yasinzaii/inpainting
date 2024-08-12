@@ -21,4 +21,3 @@ python train_net.py --name cvpr2022_p_vqvae_imagenet --config_file configs/put_c
 # batch size 3, 32 GPUs in 4 nodes
 python train_net.py --name cvpr2022_transformer_imagenet --config_file configs/put_cvpr2022/imagenet/transformer_imagenet.yaml --num_node 4 --tensorboard --auto_resume dataloader.batch_size 3
 
-

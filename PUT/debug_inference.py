@@ -14,6 +14,7 @@ from torch.nn.functional import l1_loss, mse_loss
 from torch.serialization import save
 import torchvision
 import glob
+import matplotlib.pyplot as plt
 from PIL import Image
 from collections import OrderedDict, defaultdict
 from torch.utils.data import ConcatDataset, dataset
@@ -26,18 +27,22 @@ from put.PUT.image_synthesis.utils.misc import format_seconds, merge_opts_to_con
 from put.PUT.image_synthesis.distributed.launch import launch
 from put.PUT.image_synthesis.distributed.distributed import get_rank, reduce_dict, synchronize, all_gather
 from put.PUT.image_synthesis.utils.misc import get_model_parameters_info, get_model_buffer
+from put.PUT.image_synthesis.data.utils.flow_image_transform import Normalize_Transform
 
-
-
+#先从occulusion里读出所有的mask，然后整理到一个目录里面，检查下对应关系；改好读取mask的代码，（改好存的路径）；之后改下读取image和mask时的crop和resize逻辑取更大的区域
 class ImagePathDataset(torch.utils.data.Dataset):
-    def __init__(self, image_dir, mask_dir=None, size=(256,256)):
+    def __init__(self, image_dir, mask_dir=None, size=(256, 256)):
         if os.path.isfile(image_dir):
             image_paths = [image_dir]
             image_dir = ''
         else:
             # import pdb; pdb.set_trace()
             image_paths = sorted(get_all_file(image_dir, path_type='relative'))
-        
+
+        #修改 读取max_flow
+        max_flow_paths=sorted(get_all_file('/gemini/code/zhujinxian/code/put/PUT/data/sintel/version2/max_flow', path_type='relative'))
+
+        #读取
         if mask_dir is not None:
             if os.path.isfile(mask_dir):
                 mask_paths = [mask_dir]
@@ -57,61 +62,82 @@ class ImagePathDataset(torch.utils.data.Dataset):
                 while len(mask_paths) < len(image_paths):
                     # import pdb; pdb.set_trace()
                     mask_paths += copy.deepcopy(mask_paths)
-                    
+
                 mask_paths = mask_paths[0:len(image_paths)]
             elif len(mask_paths) != len(image_paths):
-                raise RuntimeError('number of masks and images are invalid! mask: {}, image : {}'.format(len(mask_paths), len(image_paths)))
+                raise RuntimeError(
+                    'number of masks and images are invalid! mask: {}, image : {}'.format(len(mask_paths),
+                                                                                          len(image_paths)))
         # import pdb; pdb.set_trace()
-        self.image_dir = image_dir 
+        self.image_dir = image_dir
         self.mask_dir = mask_dir
         # import pdb; pdb.set_trace()
         self.image_paths = image_paths
         self.mask_paths = mask_paths
-        
-        self.size = size # h, w
+        self.max_flow_paths=max_flow_paths
+
+        self.size = size  # h, w
         self.match_image_with_mask = match_image_with_mask
 
     def __len__(self):
         return len(self.image_paths)
 
-
     def read_mask(self, mask_path):
-        mask = Image.open(mask_path)
+        #mask = Image.open(mask_path)
+        #按路径打开numpy文件
+        mask = np.load(mask_path)
+        mask=self.crop_image(mask)
         # if not mask.mode == "RGB":
         #     mask = mask.convert("RGB")
         mask = np.array(mask).astype(np.float32)
         mask = mask / 255.0
-        
+
         h, w = mask.shape[0], mask.shape[1]
-        if (h,w) != tuple(self.size):
+        if (h, w) != tuple(self.size):
             mask_inp = cv2.resize(mask, tuple(self.size), interpolation=cv2.INTER_NEAREST)
         else:
             mask_inp = copy.deepcopy(mask)
-        
+
         if len(mask.shape) == 3:
-            mask = mask[:, :, 0:1] # h, w, 1
+            mask = mask[:, :, 0:1]  # h, w, 1
             mask_inp = mask_inp[:, :, 0:1]
         else:
             mask = mask[:, :, np.newaxis]
             mask_inp = mask_inp[:, :, np.newaxis]
 
-        mask_inp = torch.tensor(mask_inp).permute(2, 0, 1).bool() # 1, h, w
-        mask = torch.tensor(mask).permute(2, 0, 1).bool() # 1, h, w
+        mask_inp = torch.tensor(mask_inp).permute(2, 0, 1).bool()  # 1, h, w
+        mask = torch.tensor(mask).permute(2, 0, 1).bool()  # 1, h, w
         return mask_inp, mask
-    
+
+    def crop_image(self, image):
+        #以图像左上角为中心裁剪[256,256]大小的图像（图像原尺寸为[1024,346]）
+        #image为1*3*436*1024,转换成436*1024*3
+        image = np.transpose(image, (2, 3, 1, 0)).squeeze()
+        x1, y1 = 0, 0
+        x2, y2 = 256, 256
+        image = image[y1:y2, x1:x2]
+        return image
+
+
     def read_image(self, image_path):
-        image = Image.open(image_path).convert('RGB')
+        #image = Image.open(image_path).convert('RGB')
+        image=np.load(image_path)
+        image=self.crop_image(image)
         # if not mask.mode == "RGB":
         #     mask = mask.convert("RGB")
         image = np.array(image).astype(np.float32)
         h, w = image.shape[0], image.shape[1]
-        if (h,w) != tuple(self.size):
+        if (h, w) != tuple(self.size):
             image_inp = cv2.resize(image, tuple(self.size), interpolation=cv2.INTER_LINEAR)
         else:
             image_inp = copy.deepcopy(image)
-        image_inp = torch.tensor(image_inp).permute(2, 0, 1) # 3, h, w
-        image = torch.tensor(image).permute(2, 0, 1) # 3, h, w
+        image_inp = torch.tensor(image_inp).permute(2, 0, 1)  # 3, h, w
+        image = torch.tensor(image).permute(2, 0, 1)  # 3, h, w
         return image_inp, image
+
+    def read_max_flow(self,max_flow_path):
+        max_flow=np.load(max_flow_path)
+        return max_flow
 
 
     def __getitem__(self, i):
@@ -120,10 +146,15 @@ class ImagePathDataset(torch.utils.data.Dataset):
         image_path = self.image_paths[i]
         image_inp, image = self.read_image(os.path.join(self.image_dir, image_path))
 
+        #修改max_flow_path
+        max_flow_path = self.max_flow_paths[i]
+        max_flow = self.read_max_flow(os.path.join('/gemini/code/zhujinxian/code/put/PUT/data/sintel/version2/max_flow',max_flow_path))
+
         data = {
             'relative_path': image_path,
             'image': image_inp,
             'image_ori': image,
+            'max_flow': max_flow
         }
 
         if self.mask_paths is not None:
@@ -146,7 +177,6 @@ class ImagePathDataset(torch.utils.data.Dataset):
         print('Remove files done! Before {}, after {}'.format(len(self.image_paths), len(mask_paths)))
         self.image_paths = sorted(list(image_paths))
         self.mask_paths = sorted(list(mask_paths))
-         
 
 
 def get_model(args=None, model_name='2020-11-09T13-33-36_faceshq_vqgan'):
@@ -160,14 +190,17 @@ def get_model(args=None, model_name='2020-11-09T13-33-36_faceshq_vqgan'):
             model_path = os.path.join(os.path.dirname(model_name), '..', 'checkpoint', 'last.pth')
         else:
             raise RuntimeError(model_name)
-        
-        if 'OUTPUT' in model_name: # pretrained model
+
+        if 'OUTPUT' in model_name:  # pretrained model
             model_name = model_name.split(os.path.sep)[-3]
-        else: # just give a config file, such as test_openai_dvae.yaml, which is no need to train, just test
+        else:  # just give a config file, such as test_openai_dvae.yaml, which is no need to train, just test
             model_name = os.path.basename(config_path).replace('.yaml', '')
     else:
-        model_path = os.path.join('OUTPUT', model_name, 'checkpoint', 'last.pth')
-        config_path = os.path.join('OUTPUT', model_name, 'configs', 'config.yaml')
+
+        model_path = os.path.join( '/put/PUT/OUTPUT', model_name, 'checkpoint', 'last.pth')
+        model_path=cwd+model_path
+        config_path = os.path.join('/put/PUT/OUTPUT', model_name, 'configs', 'config.yaml')
+        config_path=cwd+config_path
 
     args.model_path = model_path
     args.config_path = config_path
@@ -223,9 +256,6 @@ def get_model(args=None, model_name='2020-11-09T13-33-36_faceshq_vqgan'):
     return {'model': model, 'epoch': epoch, 'model_name': model_name, 'parameter': model_parameters}
 
 
-
-
-
 def inference_reconstruction(local_rank=0, args=None):
     # used  for image based auto encoder
     info = get_model(args=args, model_name=args.name)
@@ -233,15 +263,17 @@ def inference_reconstruction(local_rank=0, args=None):
     epoch = info['epoch']
     model_name = info['model_name']
 
-    data = ImagePathDataset(image_dir=args.image_dir, mask_dir=args.mask_dir, size=tuple(int(s) for s in args.input_res.split(',')))
+    data = ImagePathDataset(image_dir=args.image_dir, mask_dir=args.mask_dir,
+                            size=tuple(int(s) for s in args.input_res.split(',')))
     num_images_per_rank = len(data) // args.world_size
     start_index = get_rank() * num_images_per_rank
     end_index = start_index + num_images_per_rank
-    print('number of images:', len(data)//args.world_size)
+    print('number of images:', len(data) // args.world_size)
 
     total_loss = {"mse_loss": 0.0, "psnr": 0.0, "l1_loss": 0.0, "ssim": 0.0, "mae": 0.0}
     total_batch = 0.0
     # save images
+    args.save_dir=args.save_dir+'/put/PUT/RESULTS/'
     save_root = os.path.join(args.save_dir, model_name)
     save_root = save_root + '_e{}'.format(epoch)
 
@@ -254,14 +286,14 @@ def inference_reconstruction(local_rank=0, args=None):
     # sys.exit(1)
 
     print('results will be saved in {}'.format(save_root))
-    save_count = -1 # the number of images to be saved, -1 means save all iamges
+    save_count = -1  # the number of images to be saved, -1 means save all iamges
     save_token = False
 
     token_freq = OrderedDict()
     if token_freq is not None:
         num_tokens = model.get_number_of_tokens()
         token_freq['default'] = OrderedDict()
-        for i in range(num_tokens): # such as VQVAE1
+        for i in range(num_tokens):  # such as VQVAE1
             token_freq['default'][i] = torch.tensor(0.0).cuda()
 
     # rec_time = 0
@@ -279,19 +311,20 @@ def inference_reconstruction(local_rank=0, args=None):
     for i in range(start_index, end_index):
         data_i = data[i]
 
-        print("{}/{}".format(i, end_index-start_index))
+        print("{}/{}".format(i, end_index - start_index))
 
         # tic = time.time()
         # count += 1
 
         with torch.no_grad():
             img = data_i['image'].to(model.device).unsqueeze(dim=0).contiguous()
-            mask = data_i.get('mask', None) 
+            mask = data_i.get('mask', None)
             if mask is not None:
                 mask = mask.to(model.device).unsqueeze(dim=0)
             token = model.get_tokens(img, return_token_index=True, cache=False)
 
-            rec = model.decode(token['token'], combine_rec_and_gt=False, token_shape=token.get('token_shape', None)).contiguous()
+            rec = model.decode(token['token'], combine_rec_and_gt=False,
+                               token_shape=token.get('token_shape', None)).contiguous()
             # mask = torch.ones_like(img)[:,0:1,:,:].bool()
             # rec = model.decode(token['token'], mask_im=img, mask=mask, combine_rec_and_gt=False, token_shape=token.get('token_shape', None)).contiguous()
 
@@ -351,8 +384,7 @@ def inference_reconstruction(local_rank=0, args=None):
             token_unique = torch.unique(token_index).tolist()
             # import pdb; pdb.set_trace()
             for idx in token_unique:
-                token_freq['default'][int(idx)] += int((token_index==idx).sum())
-
+                token_freq['default'][int(idx)] += int((token_index == idx).sum())
 
     # print('rec time {} s/im, {} ims/s'.format(rec_time / count, count / rec_time))
 
@@ -367,7 +399,7 @@ def inference_reconstruction(local_rank=0, args=None):
                 token_count.append(int(v))
             token_freq_tmp_ = OrderedDict()
             index = np.argsort(token_count)
-            for i in range(len(index)-1, -1, -1):
+            for i in range(len(index) - 1, -1, -1):
                 i = index[i]
                 cnt = token_count[i]
                 idx = token_idx[i]
@@ -399,15 +431,15 @@ def inference_reconstruction(local_rank=0, args=None):
         json.dump(info['parameter'], open(info_path, 'w'), indent=4)
 
 
-
-
 def inference_inpainting(local_rank=0, args=None):
     """
     This is used for image completion. Each gt image is with a mask,
-    and the generate several results. Each gt along with the mask, results are 
+    and the generate several results. Each gt along with the mask, results are
     all saved into one folder.
-    
+
     """
+    cwd=os.getcwd()
+    cwd =cwd + '/put/PUT'
     info = get_model(args=args, model_name=args.name)
     model = info['model']
     model = model.cuda()
@@ -415,27 +447,28 @@ def inference_inpainting(local_rank=0, args=None):
     epoch = info['epoch']
     model_name = info['model_name']
 
-
-    filter_ratio = [float(fr) if '.' in fr else int(fr) for fr in args.num_token_for_sampling.split(',')] 
+    filter_ratio = [float(fr) if '.' in fr else int(fr) for fr in args.num_token_for_sampling.split(',')]
     num_token_per_iter = [int(ntp) if '_' not in ntp else ntp for ntp in args.num_token_per_iter.split(',')]
 
     accumulate_time = None
 
     # save images
-    if args.save_dir:
-        save_root = os.path.join('RESULT', model_name+'_e{}'.format(epoch,args.num_sample), args.save_dir)
-    else:
-        save_root = os.path.join('RESULT', model_name+'_e{}'.format(epoch,args.num_sample), args.mask_dir.split(os.path.sep)[-1])
+    save_root =cwd+ '/RESULTS/image_inpainted'
+    # if args.save_dir:
+    #     save_root = os.path.join('/data/zhujinxian/code/put/PUT/RESULTS',  '_e{}'.format(epoch, args.num_sample), args.save_dir)
+    # else:
+    #     save_root = os.path.join('/data/zhujinxian/code/put/PUT/RESULTS',  '_e{}'.format(epoch, args.num_sample),
+    #                              args.mask_dir.split(os.path.sep)[-1])
 
     for fr in filter_ratio:
         for ntp in num_token_per_iter:
-            save_root_tmp = save_root + '_top{}_nTpi{}_numSample{}'.format(fr, ntp, args.num_sample)
+            save_root_tmp = save_root
             if args.raster_order:
                 save_root_tmp = save_root_tmp + '_raster'
             os.makedirs(save_root_tmp, exist_ok=True)
 
             print('results will be saved in {}'.format(save_root_tmp))
-            
+
             # read all processed images
             processed_image_path = glob.glob(os.path.join(save_root_tmp, 'processed_image_rank*.txt'))
             if len(processed_image_path) > 0:
@@ -450,8 +483,9 @@ def inference_inpainting(local_rank=0, args=None):
                 processed_image = set([])
 
             # # modify dataset
-            data = ImagePathDataset(image_dir=args.image_dir, mask_dir=args.mask_dir, size=tuple(int(s) for s in args.input_res.split(',')))
-            data.remove_files(list(processed_image))
+            data = ImagePathDataset(image_dir=args.image_dir, mask_dir=args.mask_dir,
+                                    size=tuple(int(s) for s in args.input_res.split(',')))
+            #data.remove_files(list(processed_image))
 
             # keep a cache file to record those images that have been processed
             processed_image_path = os.path.join(save_root_tmp, 'processed_image_rank{}.txt'.format(get_rank()))
@@ -472,9 +506,9 @@ def inference_inpainting(local_rank=0, args=None):
                 data_i = data[i]
                 if data_i['relative_path'] in processed_image:
                     print('{} exist! pasted!'.format(data_i['relative_path']))
-                    continue 
+                    continue
 
-                print("Rank: {} {}/{}".format(get_rank(), i-start_index, num_images_per_rank))
+                print("Rank: {} {}/{}".format(get_rank(), i - start_index, num_images_per_rank))
 
                 if args.num_sample > 1:
                     basename = os.path.basename(data_i['relative_path'])
@@ -483,30 +517,48 @@ def inference_inpainting(local_rank=0, args=None):
                     os.makedirs(save_root_, exist_ok=True)
                 else:
                     save_root_ = save_root_tmp
-                
+
                 # make a batch
                 data_i['relative_path'] = [data_i['relative_path']]
                 data_i['image'] = data_i['image'].unsqueeze(dim=0)
                 data_i['mask'] = data_i['mask'].unsqueeze(dim=0)
-
+                index = data_i['relative_path'][0].split('.')[0]  # 修改,获取下标index
                 # import pdb; pdb.set_trace()
 
                 # save masked image
+                #test
+                args.save_masked_image=True
                 if args.save_masked_image:
                     mask_im = (data_i['image'][0] * data_i['mask'][0]).permute(1, 2, 0).to('cpu').numpy()
                     gt_im = (data_i['image'][0]).permute(1, 2, 0).to('cpu').numpy()
                     # import pdb; pdb.set_trace()
-                    mask_im = mask_im * 0.85 + gt_im * 0.15
+                    #修改
+                    # mask_im = mask_im * 0.85 + gt_im * 0.15
+                    # mask_im_ = Image.fromarray(mask_im.astype(np.uint8))
+                    #修改增加得到flow的代码
+                    max_flow=data_i['max_flow'][0]
+                    gt_flow=Normalize_Transform().image_to_flow(gt_im,max_flow)
+                    gt_flow_u=gt_flow[:,:,0]
+                    gt_flow_v=gt_flow[:,:,1]
+                    gt_im_ = Image.fromarray(gt_im.astype(np.uint8))
                     mask_im_ = Image.fromarray(mask_im.astype(np.uint8))
                     if args.num_sample > 1:
                         save_path = os.path.join(save_root_, 'gt_mask_image.png')
                     else:
                         # import pdb; pdb.set_trace()
-                        save_path = os.path.join(save_root_, 'masked_gt', data_i['relative_path'][0])
-                        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                        save_path_mask = os.path.join(save_root_, 'mask')
+                        save_path_mask = save_path_mask + '/' + index + '.png'
+                        print('save mask in'+save_path_mask)
+                        save_path_gt = os.path.join(save_root_, 'gt')
+                        save_path_gt = save_path_gt + '/' + index + '.png'
+                        print('save gt in'+save_path_gt)
+                        # save_path_mask = os.path.join(save_root_, 'masked_gt', data_i['relative_path'][0])#原版
+                        #os.makedirs(os.path.dirname(save_path), exist_ok=True)#原版
                     # import pdb; pdb.set_trace()
-                    mask_im_.save(save_path)
-                
+                    mask_im_.save(save_path_mask)
+                    gt_im_.save(save_path_gt)
+
+
                 # generate samples in a batch manner
                 if args.num_sample == 1:
                     count_per_cond_ = 0
@@ -527,25 +579,58 @@ def inference_inpainting(local_rank=0, args=None):
                             num_token_per_iter=ntp,
                             accumulate_time=accumulate_time,
                             raster_order=args.raster_order
-                        ) # B x C x H x W
+                        )  # B x C x H x W
                     accumulate_time = content_dict.get('accumulate_time', None)
                     print('Time consmption: ', accumulate_time)
                     # save results
                     for k in content_dict.keys():
                         # import pdb; pdb.set_trace()
                         if k in ['completed']:
-                            content = content_dict[k].permute(0, 2, 3, 1).to('cpu').numpy().astype(np.uint8)
+
+                            content = content_dict[k].permute(0, 2, 3, 1).to('cpu').numpy()
+                            #修改 加上的可视化代码
+                            content_float=content.copy()
+                            content = content.astype(np.uint8)
+                            content_flow=Normalize_Transform().image_to_flow(content_float[0],max_flow)
+                            content_flow_u=content_flow[:,:,0]
+                            content_flow_v=content_flow[:,:,1]
+                            diff_u = np.abs(content_flow_u - gt_flow_u)
+                            diff_v = np.abs(content_flow_v - gt_flow_v)
+                            save_path_u=os.path.join(save_root_, 'udiff', index + '.png')
+                            save_path_v=os.path.join(save_root_,'vdiff', index+ '.png')
+                            # 创建一个图形窗口
+                            plt.figure(figsize=(6, 6))
+                            # 绘制热力图
+                            plt.imshow(diff_u, cmap='hot', interpolation='nearest')
+                            plt.colorbar(label='Difference Intensity u')
+                            plt.savefig(save_path_u)
+                            # 创建一个图形窗口
+                            plt.figure(figsize=(6, 6))
+                            # 绘制热力图
+                            plt.imshow(diff_v, cmap='hot', interpolation='nearest')
+                            plt.colorbar(label='Difference Intensity v')
+                            plt.savefig(save_path_v)
+                            #上述为修改加入的代码
                             for b in range(content.shape[0]):
                                 if args.num_sample > 1:
                                     cnt = count_per_cond_ + b
-                                    save_path = os.path.join(save_root_, '{}_cnt{}_fr{}.png'.format(k, str(cnt).zfill(6), fr))
+                                    save_path = os.path.join(save_root_,
+                                                             '{}_cnt{}_fr{}.png'.format(k, str(cnt).zfill(6), fr))
                                 else:
-                                    save_path = os.path.join(save_root_, k,  data_i['relative_path'][b])
-                                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-                                im = Image.fromarray(content[b])
-                                im.save(save_path)
-                                print('Rank {}, Total time {}, batch time {:.2f}s, saved in {}'.format(local_rank, format_seconds(time.time()-start_gen), time.time()-start_batch, save_path))
-                    
+                                    #save_path = os.path.join(save_root_, k, data_i['relative_path'][b])
+                                    save_path = os.path.join(save_root_, k)
+                                    save_path=save_path+'/'+index+'.png'
+                                   # os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                                # im = Image.fromarray(content[b])
+                                # im.save(save_path)
+                                numpy_array=content[b]
+                                cv2.imwrite(save_path, numpy_array)
+                                print('Rank {}, Total time {}, batch time {:.2f}s, saved in {}'.format(local_rank,
+                                                                                                       format_seconds(
+                                                                                                           time.time() - start_gen),
+                                                                                                       time.time() - start_batch,
+                                                                                                       save_path))
+
                     # prepare for next iteration
                     print('==> batch time {}s'.format(round(time.time() - start_batch, 1)))
                     if args.num_sample > 1:
@@ -554,16 +639,16 @@ def inference_inpainting(local_rank=0, args=None):
                         count_per_cond_ += 1
 
                 # processed_image_writer.write(''.join([p+'\n' for p in data_i['relative_path']]))
-                processed_image_writer.write(data_i['relative_path'][0]+'\n')
+                processed_image_writer.write(data_i['relative_path'][0] + '\n')
                 processed_image_writer.flush()
 
     if accumulate_time is not None and len(list(accumulate_time.keys())) > 0:
-        accumulate_time = {k: torch.tensor(v) if not torch.is_tensor(v) else v for k,v in accumulate_time.items()}
+        accumulate_time = {k: torch.tensor(v) if not torch.is_tensor(v) else v for k, v in accumulate_time.items()}
         accumulate_time = reduce_dict(accumulate_time, average=True)
         if local_rank == 0:
             time_path = os.path.join(save_root_tmp, 'time_consumption.json')
             os.makedirs(os.path.dirname(time_path), exist_ok=True)
-            accumulate_time = {k: float(v) for k,v in accumulate_time.items()}
+            accumulate_time = {k: float(v) for k, v in accumulate_time.items()}
             json.dump(accumulate_time, open(time_path, 'w'), indent=4)
             print(accumulate_time)
 
@@ -571,32 +656,31 @@ def inference_inpainting(local_rank=0, args=None):
 def get_args():
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
-    parser.add_argument('--save_dir', type=str, default='', 
-                        help='directory to save results') 
+    parser.add_argument('--save_dir', type=str, default='',
+                        help='directory to save results')
 
-    parser.add_argument('--name', type=str, default='', 
+    parser.add_argument('--name', type=str, default='',
                         help='the name of this experiment, if not provided, set to'
-                             'the name of config file') 
-    parser.add_argument('--func', type=str, default='inference_inpainting', 
+                             'the name of config file')
+    parser.add_argument('--func', type=str, default='inference_inpainting',
                         help='the name of inference function')
 
-    parser.add_argument('--input_res', type=str, default='256,256', 
+    parser.add_argument('--input_res', type=str, default='256,256',
                         help='input resolution (h,w)')
     parser.add_argument('--image_dir', type=str, default='',
-                        help='gt images need to be loaded') 
+                        help='gt images need to be loaded')
     parser.add_argument('--mask_dir', type=str, default=None,
                         help='mask dirs for image completion, Each gt image should have'
-                        'a correspoding mask to be loaded')   
+                             'a correspoding mask to be loaded')
 
-    
     # args for sampling
-    parser.add_argument('--num_token_per_iter', type=str, default='1', 
+    parser.add_argument('--num_token_per_iter', type=str, default='1',
                         help='the number of patches to be inpainted in one iteration')
-    parser.add_argument('--num_token_for_sampling', type=str, default='200', 
+    parser.add_argument('--num_token_for_sampling', type=str, default='200',
                         help='the top-k tokens remained for sampling for each patch')
-    parser.add_argument('--save_masked_image', action='store_true', default=False,    
+    parser.add_argument('--save_masked_image', action='store_true', default=False,
                         help='Save the masked image, i.e., the input')
-    parser.add_argument('--raster_order', action='store_true', default=False,    
+    parser.add_argument('--raster_order', action='store_true', default=False,
                         help='Get the k1 patches in a raster order')
 
     # args for ddp
@@ -604,11 +688,11 @@ def get_args():
                         help='number of nodes for distributed training')
     parser.add_argument('--node_rank', type=int, default=0,
                         help='node rank for distributed training')
-    parser.add_argument('--dist_url', type=str, default='auto', 
+    parser.add_argument('--dist_url', type=str, default='auto',
                         help='url used to set up distributed training')
     parser.add_argument('--gpu', type=int, default=None,
                         help='GPU id to use. If given, only the specific gpu will be'
-                        ' used, and ddp will be disabled')
+                             ' used, and ddp will be disabled')
     parser.add_argument('--num_replicate', type=int, default=1,
                         help='replaicate the batch data while forwarding. This may accelerate the sampling speed if num_sample > 1')
     parser.add_argument('--num_sample', type=int, default=1,
@@ -644,5 +728,6 @@ if __name__ == '__main__':
 
     args.distributed = args.world_size > 1
 
-    launch(inference_func_map[args.func], args.ngpus_per_node, args.num_node, args.node_rank, args.dist_url, args=(args,))
+    launch(inference_func_map[args.func], args.ngpus_per_node, args.num_node, args.node_rank, args.dist_url,
+           args=(args,))
 
