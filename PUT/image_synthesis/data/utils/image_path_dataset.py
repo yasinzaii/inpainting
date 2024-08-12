@@ -28,6 +28,7 @@ class ImagePaths(Dataset):
 
     def _read_image(self, image_path, type='image'):
         #根据image_path打开.flo文件
+        #flow_to_image
         if image_path.endswith('.flo'):
             with open(image_path, 'rb') as f:
                 magic = np.fromfile(f, np.float32, count=1)
