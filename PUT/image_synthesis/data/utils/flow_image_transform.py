@@ -25,6 +25,54 @@ class Normalize_Transform(object):
         flow=flow.astype(np.float32)
         return flow
 
+class Repeat_Transform(object):
+    def flow_to_image(self, flow):
+        # Split the input flow into two separate arrays
+        flow1 = flow[:, :, 0]
+        flow2 = flow[:, :, 1]
+
+        # Repeat the single channel three times to create two arrays with shape 256*256*3
+        flow1 = np.repeat(flow1[:, :, np.newaxis], 3, axis=2)
+        flow2 = np.repeat(flow2[:, :, np.newaxis], 3, axis=2)
+
+        # Calculate the maximum flow as the square root of the sum of squares of the two channels
+        max_flow = np.max(np.sqrt(flow[:, :, 0] ** 2 + flow[:, :, 1] ** 2))
+
+        # Normalize each array
+        flow1 = flow1 / max_flow
+        flow1 = (flow1 + 1) / 2
+        flow1 = flow1.astype(np.float32)
+
+        flow2 = flow2 / max_flow
+        flow2 = (flow2 + 1) / 2
+        flow2 = flow2.astype(np.float32)
+
+        # Convert the normalized arrays to images
+        img1 = flow1 * 255.0
+        img1 = img1.astype(np.float32)
+
+        img2 = flow2 * 255.0
+        img2 = img2.astype(np.float32)
+
+        return img1, img2, max_flow
+
+    def image_to_flow(self, img1, img2, max_flow):
+        # Normalize the input images
+        img1 = img1 / 255.0
+        img1 = img1 * 2 - 1
+        img2 = img2 / 255.0
+        img2 = img2 * 2 - 1
+        flow1 = img1[:, :, 0]
+        flow2 = img2[:, :, 0]
+        # Combine the two images into a single array
+        flow = np.stack((flow1, flow2), axis=2)
+
+        # Scale the flow array by the maximum flow value
+        flow = flow * max_flow
+        flow = flow.astype(np.float32)
+
+        return flow
+
 if __name__ == "__main__":
      for i in range(1041):
           ori_image_path="/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/ori_image/"+str(i)+".npy"

@@ -38,6 +38,20 @@ def get_args():
     parser.add_argument('--auto_resume', action='store_true',
                         help='automatically resume the training')
 
+    # args for sampling#为了验证加上的
+    parser.add_argument('--num_token_per_iter', type=str, default='1',
+                        help='the number of patches to be inpainted in one iteration')
+    parser.add_argument('--num_token_for_sampling', type=str, default='200',
+                        help='the top-k tokens remained for sampling for each patch')
+    parser.add_argument('--save_masked_image', action='store_true', default=False,
+                        help='Save the masked image, i.e., the input')
+    parser.add_argument('--raster_order', action='store_true', default=False,
+                        help='Get the k1 patches in a raster order')
+    parser.add_argument('--num_replicate', type=int, default=1,
+                        help='replaicate the batch data while forwarding. This may accelerate the sampling speed if num_sample > 1')
+    parser.add_argument('--num_sample', type=int, default=1,
+                        help='The number of inpatined results to get for each image')
+
     # args for ddp
     parser.add_argument('--backend', type=str, default='NCCL',
                         choices=['nccl', 'mpi', 'gloo'],
@@ -140,6 +154,7 @@ def main_worker(local_rank, args):
 
     # get model 
     model = build_model(config, args)
+    #model.load_state_dict(torch.load(checkpoint_path))
     if args.sync_bn:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 

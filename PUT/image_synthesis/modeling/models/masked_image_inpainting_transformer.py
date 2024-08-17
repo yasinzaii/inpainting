@@ -369,7 +369,9 @@ class MaskedImageInpaintingTransformer(nn.Module):
         random_quantize=0.2, # random quantize the feature, only when the input feature is not quantized
         num_token=None, # i.e the numbr of classes
         content_patch_token_shape=[1, 1], # the shape of tokens in each patch, h, w
-        ckpt_path=None, # The pretrained model to load 
+        #修改为预训练的路径
+        # ckpt_path="/gemini/code/zhujinxian/pths/PUT/OUTPUT/tpami2024_vit_base_imagenet_res256/checkpoint/000299e_1000799iter.pth", # The pretrained model to load
+        ckpt_path="/gemini/code/zhujinxian/pths/PUT/OUTPUT/sintel_finetune/checkpoint/last.pth",
         loss_config=None,
         loss_mask_type='binary', # binary: the patch with any pixel missed, other use the unmasked ratio as the mask
     ):

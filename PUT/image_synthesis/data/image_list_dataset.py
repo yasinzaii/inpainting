@@ -12,6 +12,7 @@ from put.PUT.image_synthesis.data.utils.image_path_dataset import ImagePaths
 from put.PUT.image_synthesis.utils.misc import instantiate_from_config, get_all_file
 from put.PUT.image_synthesis.data.utils.util import generate_mask_based_on_landmark, generate_stroke_mask, rgba_to_depth, visualize_depth
 from put.PUT.image_synthesis.utils.io import load_dict_from_json
+from put.PUT.image_synthesis.data.utils.flow_image_transform import Repeat_Transform
 
 MASK_RATIO_INDEX = {
     '0.01': 0,
@@ -79,27 +80,31 @@ class ImageListDataset(Dataset):
             data_root = 'data'
         self.data_root = data_root
 
-        # get image file
-        image_relative_paths = self.get_file_list(root=os.path.join(data_root, name), name=name, file_list=image_list_file, file_end_with=image_end_with)
+        # # get image file
+        # image_relative_paths = self.get_file_list(root=os.path.join(data_root, name), name=name, file_list=image_list_file, file_end_with=image_end_with)
+        list_path="/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/"+name+"/list.txt"
+        with open(list_path, 'r') as f:
+            image_relative_paths = f.read().splitlines()
         #得到每一个图片（光流文件）的路径
-        image_paths = [os.path.join(data_root, name, relpath) for relpath in image_relative_paths]
+        self.image_paths = ["/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/"+name+"/flow_np/"+relpath+".npy" for relpath in image_relative_paths]
+        self.mask_paths= ["/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/"+name+"/maskv/"+relpath+".png" for relpath in image_relative_paths]
 
         if load_segmentation_map:
             # import pdb; pdb.set_trace()
             semgmentation_paths = self.get_file_list(root=os.path.join(self.data_root, 'segmentation', name), name=name, file_list=image_list_file, file_end_with='.png', path_type='abs')
             # semgmentation_paths = self.get_file_list(root=os.path.join(self.data_root, 'sketch', name), name=name, file_list=image_list_file, file_end_with='.png', path_type='abs')
-            assert len(semgmentation_paths) == len(image_paths), 'the number of segmentation maps should be the same with images, image: {}, maps: {}'.format(len(image_paths), len(semgmentation_paths))
+            assert len(semgmentation_paths) == len(self.image_paths), 'the number of segmentation maps should be the same with images, image: {}, maps: {}'.format(len(self.image_paths), len(semgmentation_paths))
         else:
             semgmentation_paths = None
         
         if load_sketch_map:
             sketch_paths = self.get_file_list(root=os.path.join(self.data_root, 'sketch', name), name=self.name, file_list=image_list_file, file_end_with='.png', path_type='abs')
-            assert len(sketch_paths) == len(image_paths), 'the number of sketch maps should be the same with images, image: {}, maps: {}'.format(len(image_paths), len(sketch_paths))
+            assert len(sketch_paths) == len(self.image_paths), 'the number of sketch maps should be the same with images, image: {}, maps: {}'.format(len(self.image_paths), len(sketch_paths))
         else:
             sketch_paths = None
-        #data就是所有的指向图片路径初始化的dataset
-        self.data = ImagePaths(paths=image_paths, sketch_paths=sketch_paths, segmentation_paths=semgmentation_paths, labels={'relative_path': image_relative_paths})
 
+        # self.data = ImagePaths(paths=image_paths, sketch_paths=sketch_paths, segmentation_paths=semgmentation_paths, labels={'relative_path': image_relative_paths})
+        self.data=image_relative_paths
         # get preprocessor
         self.preprocessor = instantiate_from_config(im_preprocessor_config)
         self.coord = coord
@@ -190,7 +195,7 @@ class ImageListDataset(Dataset):
 
     def __len__(self):
         if self.debug:
-            return min(1000, len(self.data))
+            return min(500, len(self.data))#1000改为500
         return len(self.data)
 
     def get_erase_mask(self, im_size, erase_mask=False, index=None):
@@ -236,20 +241,58 @@ class ImageListDataset(Dataset):
                     mask = mask[:, :, np.newaxis]
         return mask # H W 1
 
-    def __getitem__(self, index):
-        data = self.data[index]
-        
-        if not self.coord:
-            image = data['image']
 
-            maps = []
-            map_keys = []
-            if 'segmentation_map' in data:
-                maps.append(data['segmentation_map'])
-                map_keys.append('segmentation_map')
-            if 'sketch_map' in data:
-                maps.append(data['sketch_map'])
-                map_keys.append('sketch_map')
+    def crop_image(self, image):
+        #以图像左上角为中心裁剪[256,256]大小的图像（图像原尺寸为[1024,346]）
+        #image为1*3*436*1024,转换成436*1024*3
+        # image = np.transpose(image, (2, 3, 1, 0)).squeeze()
+        x1, y1 = 294, 0
+        x2, y2 = 730, 436
+        image = image[y1:y2, x1:x2]
+        return image
+
+    def __getitem__(self, index):
+        # data = self.data[index]
+        data={}
+        flow_np=np.load(self.image_paths[index])
+        mask=Image.open(self.mask_paths[index])
+        mask = np.array(mask)
+        mask = self.crop_image(mask)
+        # if not mask.mode == "RGB":
+        #     mask = mask.convert("RGB")
+        mask = np.array(mask).astype(np.float32)
+        mask = mask / 255.0
+        # 修改
+        mask = 1 - mask
+        mask = cv2.resize(mask, tuple((256,256)), interpolation=cv2.INTER_NEAREST)
+        data['mask'] = np.expand_dims(mask, axis=0) # 1 x H x W
+        img1,img2,max_flow=Repeat_Transform() .flow_to_image(flow_np)
+        img1=self.crop_image(img1)
+        img1 = cv2.resize(img1,tuple((256, 256)), interpolation=cv2.INTER_NEAREST)
+        img2=self.crop_image(img2)
+        img2 = cv2.resize(img2,tuple((256, 256)), interpolation = cv2.INTER_NEAREST)
+        if self.name == "val":
+            data['image'] = np.transpose(img1.astype(np.float32), (2, 0, 1))
+            data['image2'] = np.transpose(img2.astype(np.float32), (2, 0, 1))
+        else:
+            # if random.random() < 0.5:
+                data['image']= np.transpose(img1.astype(np.float32), (2, 0, 1))
+                data['image2'] = np.transpose(img2.astype(np.float32), (2, 0, 1))
+            # else:
+            #     data['image']= np.transpose(img2.astype(np.float32) ,(2, 0, 1))
+            #     data['image2'] = np.transpose(img1.astype(np.float32), (2, 0, 1))
+        # if not self.coord:
+        #     image = data['image']
+        # data['image'] = data['image'] * data['mask'].astype(np.float32)
+        data['mask']=data['mask'].astype(np.bool)
+            # maps = []
+            # map_keys = []
+            # if 'segmentation_map' in data:
+            #     maps.append(data['segmentation_map'])
+            #     map_keys.append('segmentation_map')
+            # if 'sketch_map' in data:
+            #     maps.append(data['sketch_map'])
+            #     map_keys.append('sketch_map')
             #不对光流做crop和resize
             # if len(maps) > 0:
             #     augmented_data = self.preprocessor(image=image, masks=maps)
@@ -259,31 +302,31 @@ class ImageListDataset(Dataset):
             # for i in range(len(map_keys)):
             #     # import pdb; pdb.set_trace()
             #     data[map_keys[i]] = augmented_data['masks'][i].astype(np.float32)[None, :, :] # 1 x H x W
-            data['image'] = np.transpose(data['image'].astype(np.float32), (2, 0, 1)) # 3 x H x W
-            data['ori_image'] = data['image'].copy()
-        else: # the following code is not used
-            h, w, _ = data['image'].shape
-            coord = (np.arange(h*w).reshape(h,w,1)/(h*w)).astype(np.float32)
-            # import pdb; pdb.set_trace()
-            out = self.preprocessor(image=data["image"], coord=coord)
-            data['image'] = np.transpose(out["image"].astype(np.float32), (2, 0, 1))
-            data["coord"] = np.transpose(out["coord"].astype(np.float32), (2, 0, 1))
-        
-        if random.random() < self.erase_image_with_mask:
-            mask_ = self.get_erase_mask(im_size=(data['image'].shape[1], data['image'].shape[2]), erase_mask=True) # H W 1
-            mask_ = np.transpose(mask_.astype(data['image'].dtype), (2, 0, 1)) # 1 x H x W
-            data['image'] = mask_ * data['image']
-            data['erase_mask'] = mask_
-        else:
-            if self.return_data_keys is not None and 'erase_mask' in self.return_data_keys:
-                data['erase_mask'] = np.ones((1, data['image'].shape[-2], data['image'].shape[-1]), dtype=np.float32)
-
-        if random.random() < self.mask:
-            mask = self.get_erase_mask(im_size=(data['image'].shape[1], data['image'].shape[2]), index=index)
-            data['mask'] = np.transpose(mask.astype(np.bool), (2, 0, 1)) # 1 x H x W
-
-            if self.multi_image_mask:
-                data['image'] = data['image'] * data['mask'].astype(np.float32)
+            # data['image'] = np.transpose(data['image'].astype(np.float32), (2, 0, 1)) # 3 x H x W
+            # data['ori_image'] = data['image'].copy()
+        # else: # the following code is not used
+        #     h, w, _ = data['image'].shape
+        #     coord = (np.arange(h*w).reshape(h,w,1)/(h*w)).astype(np.float32)
+        #     # import pdb; pdb.set_trace()
+        #     out = self.preprocessor(image=data["image"], coord=coord)
+        #     data['image'] = np.transpose(out["image"].astype(np.float32), (2, 0, 1))
+        #     data["coord"] = np.transpose(out["coord"].astype(np.float32), (2, 0, 1))
+        #
+        # if random.random() < self.erase_image_with_mask:
+        #     mask_ = self.get_erase_mask(im_size=(data['image'].shape[1], data['image'].shape[2]), erase_mask=True) # H W 1
+        #     mask_ = np.transpose(mask_.astype(data['image'].dtype), (2, 0, 1)) # 1 x H x W
+        #     data['image'] = mask_ * data['image']
+        #     data['erase_mask'] = mask_
+        # else:
+        #     if self.return_data_keys is not None and 'erase_mask' in self.return_data_keys:
+        #         data['erase_mask'] = np.ones((1, data['image'].shape[-2], data['image'].shape[-1]), dtype=np.float32)
+        #
+        # if random.random() < self.mask:
+        #     mask = self.get_erase_mask(im_size=(data['image'].shape[1], data['image'].shape[2]), index=index)
+        #     data['mask'] = np.transpose(mask.astype(np.bool), (2, 0, 1)) # 1 x H x W
+        #
+        #     if self.multi_image_mask:
+        #         data['image'] = data['image'] * data['mask'].astype(np.float32)
 
         # data['image_hr'] = data['image'].copy()
         # data['mask_hr'] = data['mask'].copy()
@@ -296,9 +339,8 @@ class ImageListDataset(Dataset):
             data_out = {}
             for k in self.return_data_keys:
                 data_out[k] = data[k]
-            data_out['max_flow'] = data['max_flow']
-            data_out['ori_image'] = data['ori_image']
-            data_out['ori_flow']=data['ori_flow']
+            data_out['max_flow']=max_flow
+            data_out['image2']=data['image2']
             return data_out
         else:
             return data

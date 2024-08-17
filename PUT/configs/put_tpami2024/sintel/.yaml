@@ -107,7 +107,7 @@ dataloader:
   train_datasets:
     - target: image_synthesis.data.image_list_dataset.ImageListDataset
       params:
-        name: train
+        name: imagenet/train
         image_end_with: JPEG
 
         provided_mask_name: irregular-mask/testing_mask_dataset
@@ -139,7 +139,7 @@ dataloader:
   validation_datasets:
     - target: image_synthesis.data.image_list_dataset.ImageListDataset
       params:
-        name: val
+        name: imagenet/val
         image_end_with: JPEG
 
         provided_mask_name: irregular-mask/testing_mask_dataset

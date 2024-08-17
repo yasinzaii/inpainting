@@ -66,12 +66,30 @@ def build_dataloader(config, args=None, return_dataset=False):
                                              pin_memory=True, 
                                              sampler=val_sampler, 
                                              drop_last=True)
-
+    #
+    viz_loader = torch.utils.data.DataLoader(val_dataset,
+                                             batch_size=1,
+                                             shuffle=False, #(val_sampler is None),
+                                             num_workers=num_workers,
+                                             pin_memory=True,
+                                             sampler=val_sampler,
+                                             drop_last=True)
+    viz_iters=len(val_dataset)
+    # viz_loader = torch.utils.data.DataLoader(train_dataset,
+    #                                          batch_size=1,
+    #                                          shuffle=False, #(val_sampler is None),
+    #                                          num_workers=num_workers,
+    #                                          pin_memory=True,
+    #                                          sampler=val_sampler,
+    #                                          drop_last=True)
+    # viz_iters = len(train_dataset)
     dataload_info = {
         'train_loader': train_loader,
         'validation_loader': val_loader,
         'train_iterations': train_iters,
-        'validation_iterations': val_iters
+        'validation_iterations': val_iters,
+        'viz_loader': viz_loader,
+        'viz_iterations': viz_iters
     }
     
     if return_dataset:

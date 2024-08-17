@@ -20,7 +20,7 @@ model:
     content_codec_config:
       target: image_synthesis.modeling.codecs.image_codec.patch_vqgan.PatchVQGAN
       params:
-        ckpt_path: OUTPUT/cvpr2022_p_vqvae_imagenet/checkpoint/last.pth # TODO: change this path to your own trained p-vqvae
+        ckpt_path:  /gemini/code/zhujinxian/pths/PUT/OUTPUT/tpami2024_p_vqvae_imagenet_res256/checkpoint/last.pth # TODO: change this path to your own trained p-vqvae
         trainable: False
         token_shape: [32, 32]
         quantizer_config:

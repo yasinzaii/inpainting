@@ -1,17 +1,21 @@
 import os
 import time
 import math
+import numpy as np
 import torch
 from PIL import Image
 from torch.nn.utils import clip_grad_norm_, clip_grad_norm
 import torchvision
-from image_synthesis.utils.misc import instantiate_from_config, format_seconds
-from image_synthesis.distributed.distributed import reduce_dict
-from image_synthesis.distributed.distributed import is_primary, get_rank
-from image_synthesis.utils.misc import get_model_parameters_info
-from image_synthesis.engine.lr_scheduler import ReduceLROnPlateauWithWarmup, CosineAnnealingLRWithWarmup
-from image_synthesis.engine.ema import EMA
+from put.PUT.image_synthesis.utils.misc import instantiate_from_config, format_seconds
+from put.PUT.image_synthesis.distributed.distributed import reduce_dict
+from put.PUT.image_synthesis.distributed.distributed import is_primary, get_rank
+from put.PUT.image_synthesis.utils.misc import get_model_parameters_info
+from put.PUT.image_synthesis.engine.lr_scheduler import ReduceLROnPlateauWithWarmup, CosineAnnealingLRWithWarmup
+from put.PUT.image_synthesis.engine.ema import EMA
 from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
+from put.PUT.image_synthesis.data.utils.flow_image_transform import Repeat_Transform
+from put.PUT.image_synthesis.utils.flow_viz import *
+
 try:
     from torch.cuda.amp import autocast, GradScaler
     AMP = True
@@ -53,8 +57,8 @@ class Solver(object):
 
         self.last_epoch = -1
         self.last_iter = -1
-        self.ckpt_dir = os.path.join(args.save_dir, 'checkpoint')
-        self.image_dir = os.path.join(args.save_dir, 'images')
+        self.ckpt_dir = "/gemini/code/zhujinxian/pths/PUT/OUTPUT/sintel_finetune"+ "/checkpoint"
+        self.image_dir = "/gemini/code/zhujinxian/pths/PUT/OUTPUT/sintel_finetune"+"/images"
         os.makedirs(self.ckpt_dir, exist_ok=True)
         os.makedirs(self.image_dir, exist_ok=True)
 
@@ -308,6 +312,7 @@ class Solver(object):
 
             # loss[op_sc_n] = {k: v for k, v in output.items() if ('loss' in k or 'acc' in k or 'log' in k)}
             loss[op_sc_n] = {k: v for k, v in output.items() if (v.numel() == 1 and len(v.shape) == 0)}
+
         return loss
 
     def save(self, force=False, accumulate_time=True):
@@ -572,15 +577,120 @@ class Solver(object):
     def validate(self):
         self.validation_epoch()
 
+
+    def get_inpainted_img(self, batch):
+        with torch.no_grad():
+            content_dict = self.model.generate_content(
+                batch=batch,
+                filter_ratio=50.0,
+                filter_type='count',
+                replicate=1,
+                with_process_bar=True,
+                mask_low_to_high=False,
+                sample_largest=True,
+                calculate_acc_and_prob=False,
+                num_token_per_iter=1,
+                accumulate_time=None,
+                raster_order=self.args.raster_order
+            )  # B x C x H x W
+        accumulate_time = content_dict.get('accumulate_time', None)
+        print('Time consmption: ', accumulate_time)
+        # save results
+        for k in content_dict.keys():
+            # import pdb; pdb.set_trace()
+            if k in ['completed']:
+                content = content_dict[k].permute(0, 2, 3, 1).to('cpu').numpy()
+        return content[0]
+
+
+    def log_validation(self,save_dir):
+        self.model.eval()
+        list_path="/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/val/list.txt"
+        # list_path = "/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/train/list.txt"
+        with open(list_path, 'r') as f:
+            image_relative_paths = f.read().splitlines()
+        list=[1,10,20,30,40,50,60,70,80,90]
+        os.makedirs(save_dir+"/img1", exist_ok=True)
+        os.makedirs(save_dir+"/img2", exist_ok=True)
+        os.makedirs(save_dir+"/mask", exist_ok=True)
+        os.makedirs(save_dir+"/img1_inpainted", exist_ok=True)
+        os.makedirs(save_dir+"/img2_inpainted", exist_ok=True)
+        os.makedirs(save_dir+"/flow_gt", exist_ok=True)
+        os.makedirs(save_dir+"/flow_inpainted", exist_ok=True)
+        os.makedirs(save_dir+"/flow_gt_viz", exist_ok=True)
+        os.makedirs(save_dir+"/flow_inpainted_viz", exist_ok=True)
+        os.makedirs(save_dir+"/flow_gt_viz_masked", exist_ok=True)
+        os.makedirs(save_dir+"/flow_inpainted_viz_masked", exist_ok=True)
+        for itr, batch in enumerate(self.dataloader['viz_loader']):
+            if itr in list:
+                index= image_relative_paths[itr]
+                img1=batch['image'].numpy()#1*3*256*256
+                img1=np.squeeze(img1,axis=0)#256*256*3 npy
+                img1=img1.transpose(1,2,0)
+                img2=batch['image2'].numpy()
+                img2=np.squeeze(img2,axis=0)
+                img2=img2.transpose(1,2,0)
+                mask=batch['mask'].numpy()
+                mask=mask.astype(np.uint8)
+                mask=np.squeeze(mask,axis=0)
+                mask=mask.transpose(1,2,0)#256*256*1 bool npy
+                max_flow=batch['max_flow'].numpy().item()
+                img1_inpainted=self.get_inpainted_img(batch)#256*256*3 npy
+                batch['image']=batch['image2']
+                img2_inpainted=self.get_inpainted_img(batch)
+                flow_gt=Repeat_Transform().image_to_flow(img1,img2,max_flow)#256*256*2 npy
+                flow_inpainted=Repeat_Transform().image_to_flow(img1_inpainted,img2_inpainted,max_flow)#256*256*2 npy
+                flow_gt_viz=flow_to_image(flow_gt)#256*256*3 npy
+                flow_inpainted_viz=flow_to_image(flow_inpainted)
+                flow_gt_viz_masked=flow_gt_viz*mask#256*256*3  npy
+                flow_inpainted_viz_masked=flow_inpainted_viz*mask
+                if mask.shape[-1] == 1:
+                    mask = mask.squeeze(-1)
+                mask_image = Image.fromarray(mask * 255)
+                save_img1 = save_dir + "/img1/" + index + ".npy"
+                save_img2 = save_dir + "/img2/" + index + ".npy"
+                save_mask = save_dir + "/mask/" + index + ".png"
+                save_img1_inpainted = save_dir + "/img1_inpainted/" + index + ".npy"
+                save_img2_inpainted = save_dir + "/img2_inpainted/" + index + ".npy"
+                save_flow_gt = save_dir + "/flow_gt/" + index + ".npy"
+                save_flow_inpainted = save_dir + "/flow_inpainted/" + index + ".npy"
+                save_flow_gt_viz = save_dir + "/flow_gt_viz/" + index + ".png"
+                save_flow_inpainted_viz = save_dir + "/flow_inpainted_viz/" + index + ".png"
+                save_flow_gt_viz_masked = save_dir + "/flow_gt_viz_masked/" + index + ".png"
+                save_flow_inpainted_viz_masked = save_dir + "/flow_inpainted_viz_masked/" + index + ".png"
+                np.save(save_img1, img1)
+                np.save(save_img2, img2)
+                mask_image.save(save_mask)
+                np.save(save_img1_inpainted, img1_inpainted)
+                np.save(save_img2_inpainted, img2_inpainted)
+                np.save(save_flow_gt, flow_gt)
+                np.save(save_flow_inpainted, flow_inpainted)
+                flow_gt_viz = Image.fromarray(flow_gt_viz)
+                flow_inpainted_viz = Image.fromarray(flow_inpainted_viz)
+                flow_gt_viz_masked = Image.fromarray(flow_gt_viz_masked)
+                flow_inpainted_viz_masked = Image.fromarray(flow_inpainted_viz_masked)
+                flow_gt_viz.save(save_flow_gt_viz)
+                flow_inpainted_viz.save(save_flow_inpainted_viz)
+                flow_gt_viz_masked.save(save_flow_gt_viz_masked)
+                flow_inpainted_viz_masked.save(save_flow_inpainted_viz_masked)
+
+
     def train(self):
         start_epoch = self.last_epoch + 1
         self.logger.log_info('{}: global rank {}: start training...'.format(self.args.name, self.args.global_rank), check_primary=False)
         for epoch in range(start_epoch, self.max_epochs):
             train = True
             if self.max_iterations > 0 and self.last_iter >= self.max_iterations:
-                train = False 
+                train = False
             if train:
                 self.train_epoch()
                 self.save(force=True)
                 self.validate_epoch()
+                save_dir="/gemini/code/zhujinxian/codeRESULTS/train_validation1"
+            if epoch%50==0 or epoch==self.max_epochs-1:
+                dir=save_dir+"/epoch"+str(299)
+                os.makedirs(dir, exist_ok=True)
+                self.log_validation(dir)
+            #log_validation 输入validation_dataloader,model,save_dir,存输入的img1,img2以及mask还有输出inpainting后的img1,img2，以及还原的gt光流和i还原的npainting光流
+
 
