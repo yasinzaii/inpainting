@@ -548,6 +548,7 @@ def inference_inpainting(local_rank=0, args=None):
                     count_per_cond_ = 0
                 else:
                     count_per_cond_ = len(glob.glob(os.path.join(save_root_, '*completed*.png')))
+                batch_test=copy.deepcopy(data_i)
                 while count_per_cond_ < args.num_sample:
                     start_batch = time.time()
                     with torch.no_grad():

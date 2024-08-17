@@ -4,6 +4,8 @@ This transformer model is for PUT in CVPR 2022
 import math
 from pdb import set_trace
 from random import random
+
+import numpy as np
 import torch
 from torch.utils import data
 from tqdm import tqdm
@@ -274,8 +276,14 @@ class MaskedImageInpaintingTransformer(nn.Module):
         self.input_feature_type = input_feature_type
         self.weight_decay = weight_decay
         self.random_quantize = random_quantize
-
-        self.apply(self._init_weights)
+        #初始化参数，希望改成用已有的模型参数初始化
+        checkpoint_path="/gemini/code/zhujinxian/code/put/PUT/OUTPUT/cvpr2022_transformer_imagenet/checkpoint/000044e_600524iter.pth"
+        # Load the state dictionary from the checkpoint
+        state_dict = torch.load(checkpoint_path)
+        # Load the state dictionary into the model
+        self.load_state_dict(state_dict, strict=False)
+        #修改
+        # self.apply(self._init_weights)
 
         # reinitialize the codec, so that the pretrained model can be reloaded
         self.content_codec = instantiate_from_config(content_codec_config)
