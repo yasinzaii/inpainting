@@ -6,8 +6,8 @@ import torch
 from torch.autograd import grad
 import torch.nn as nn
 import torchvision.models as models
-from image_synthesis.modeling.modules.edge_connect.networks import Discriminator
-from image_synthesis.modeling.modules.losses.image_gradient_loss import ImageGradientLoss
+from put.PUT.image_synthesis.modeling.modules.edge_connect.networks import Discriminator
+from  put.PUT.image_synthesis.modeling.modules.losses.image_gradient_loss import ImageGradientLoss
 
 class AdversarialLoss(nn.Module):
     r"""
@@ -121,7 +121,11 @@ class PerceptualLoss(nn.Module):
 class VGG19(torch.nn.Module):
     def __init__(self):
         super(VGG19, self).__init__()
-        features = models.vgg19(pretrained=True).features
+        vgg_weights_path = '/gemini/code/zhujinxian/pths/vgg19/vgg19-dcbb9e9d.pth'
+        model_vgg=models.vgg19()
+        model_vgg.load_state_dict(torch.load(vgg_weights_path))
+        features = model_vgg.features
+        # features = models.vgg19(pretrained=True).features
         self.relu1_1 = torch.nn.Sequential()
         self.relu1_2 = torch.nn.Sequential()
 
@@ -309,15 +313,11 @@ class EdgeConnectLoss(nn.Module):
 
             out = {}
             gen_loss = 0
-            if self.g_adv_loss_weight > 0 and step >= self.disc_start:
-                gen_fake, _ = self.discriminator(reconstruction)
-                gen_adv_loss = self.adversarial_loss(gen_fake, True, False) * self.g_adv_loss_weight
-                out['adv_loss'] = gen_adv_loss
-                gen_loss = gen_loss + gen_adv_loss
-            if self.g_rec_loss_weight > 0:
-                gen_rec_loss = self.l1_loss(reconstruction, image) * self.g_rec_loss_weight / torch.mean(mask)
-                out['rec_loss'] = gen_rec_loss
-                gen_loss = gen_loss + gen_rec_loss
+
+            # if self.g_rec_loss_weight > 0:
+            #     gen_rec_loss = self.l1_loss(reconstruction, image) * self.g_rec_loss_weight / torch.mean(mask)
+            #     out['rec_loss'] = gen_rec_loss
+            #     gen_loss = gen_loss + gen_rec_loss
             if self.g_gradient_loss_weight > 0 and step >= self.gradient_start:
                 gen_grad_loss = self.image_gradient_loss(reconstruction, image) * self.g_gradient_loss_weight
                 out['grad_loss'] = gen_grad_loss
@@ -326,10 +326,10 @@ class EdgeConnectLoss(nn.Module):
                 gen_content_loss = self.perceptual_loss(reconstruction, image) * self.g_content_loss_weight
                 out['content_loss'] = gen_content_loss
                 gen_loss = gen_loss + gen_content_loss
-            if self.g_style_loss_weight > 0 and step >= self.style_start:
-                gen_style_loss = self.style_loss(reconstruction*mask, image*mask) * self.g_style_loss_weight
-                out['style_loss'] = gen_style_loss
-                gen_loss = gen_loss + gen_style_loss
+            # if self.g_style_loss_weight > 0 and step >= self.style_start:
+            #     gen_style_loss = self.style_loss(reconstruction*mask, image*mask) * self.g_style_loss_weight
+            #     out['style_loss'] = gen_style_loss
+            #     gen_loss = gen_loss + gen_style_loss
             out['loss'] = gen_loss
 
         elif name == 'discriminator':
@@ -360,3 +360,11 @@ class EdgeConnectLoss(nn.Module):
             out['loss'] = out['loss'] + other_loss[k]
             out[k] = other_loss[k]
         return out
+
+
+if __name__ == '__main__':
+    edgeloss=EdgeConnectLoss()
+    if isinstance(edgeloss, EdgeConnectLoss):
+        print("self.loss is an instance of EdgeConnectLoss")
+    else:
+        print("self.loss is NOT an instance of EdgeConnectLoss")

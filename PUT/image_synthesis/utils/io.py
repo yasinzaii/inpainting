@@ -10,7 +10,7 @@ def load_yaml_config(path):
 
 
 def save_config_to_yaml(config, path):
-    assert path.endswith('.yaml')
+    # assert path.endswith('pvqvae_sintel.yaml')
     with open(path, 'w') as f:
         f.write(yaml.dump(config))
         f.close()

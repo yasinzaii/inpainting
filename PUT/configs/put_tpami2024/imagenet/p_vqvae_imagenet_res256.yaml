@@ -120,7 +120,7 @@ dataloader:
         zero_mask: 0.95
         multi_image_mask: False 
         erase_image_with_mask: 0.15
-        return_data_keys: [image, mask, erase_mask]
+        return_data_keys: [image, mask]
         stroken_mask_params:
           maxVertex: 10
           minVertex: 5
@@ -152,7 +152,7 @@ dataloader:
         zero_mask: 0.9
         erase_image_with_mask: 0.15
         multi_image_mask: False 
-        return_data_keys: [image, mask, erase_mask]
+        return_data_keys: [image, mask]
         stroken_mask_params:
           maxVertex: 10
           minVertex: 5

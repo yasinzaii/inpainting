@@ -185,7 +185,7 @@ def get_model(args=None, model_name='2020-11-09T13-33-36_faceshq_vqgan'):
         if model_name.endswith(('.pth', '.ckpt')):
             model_path = model_name
             config_path = os.path.join(os.path.dirname(model_name), '..', 'configs', 'config.yaml')
-        elif model_name.endswith('.yaml'):
+        elif model_name.endswith('pvqvae_sintel.yaml'):
             config_path = model_name
             model_path = os.path.join(os.path.dirname(model_name), '..', 'checkpoint', 'last.pth')
         else:
@@ -194,7 +194,7 @@ def get_model(args=None, model_name='2020-11-09T13-33-36_faceshq_vqgan'):
         if 'OUTPUT' in model_name:  # pretrained model
             model_name = model_name.split(os.path.sep)[-3]
         else:  # just give a config file, such as test_openai_dvae.yaml, which is no need to train, just test
-            model_name = os.path.basename(config_path).replace('.yaml', '')
+            model_name = os.path.basename(config_path).replace('pvqvae_sintel.yaml', '')
     else:
 
         model_path = os.path.join( '/put/PUT/OUTPUT', model_name, 'checkpoint', 'last.pth')

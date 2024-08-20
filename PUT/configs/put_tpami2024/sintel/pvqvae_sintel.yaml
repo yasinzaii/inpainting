@@ -3,10 +3,10 @@ model:
   params:
     trainable: True
     token_shape: [32, 32]
-    im_process_info:
-      scale: [255.0, 255.0, 255.0]
-      mean: [0.485, 0.456, 0.406] # imagenet RGB mean
-      std: [0.229, 0.224, 0.225] # imagenet RGB std
+#    im_process_info:
+#      scale: [255.0, 255.0, 255.0]
+#      mean: [0.485, 0.456, 0.406] # imagenet RGB mean
+#      std: [0.229, 0.224, 0.225] # imagenet RGB std
     quantizer_config:
       target: image_synthesis.modeling.codecs.image_codec.patch_vqgan.VectorQuantizer
       params:
@@ -107,7 +107,7 @@ dataloader:
   train_datasets:
     - target: image_synthesis.data.image_list_dataset.ImageListDataset
       params:
-        name: imagenet/train
+        name:  train
         image_end_with: JPEG
 
         provided_mask_name: irregular-mask/testing_mask_dataset
@@ -120,7 +120,7 @@ dataloader:
         zero_mask: 0.95
         multi_image_mask: False 
         erase_image_with_mask: 0.15
-        return_data_keys: [image, mask, erase_mask]
+        return_data_keys: [image, mask]
         stroken_mask_params:
           maxVertex: 10
           minVertex: 5
@@ -139,7 +139,7 @@ dataloader:
   validation_datasets:
     - target: image_synthesis.data.image_list_dataset.ImageListDataset
       params:
-        name: imagenet/val
+        name:  val
         image_end_with: JPEG
 
         provided_mask_name: irregular-mask/testing_mask_dataset
@@ -152,7 +152,7 @@ dataloader:
         zero_mask: 0.9
         erase_image_with_mask: 0.15
         multi_image_mask: False 
-        return_data_keys: [image, mask, erase_mask]
+        return_data_keys: [image, mask]
         stroken_mask_params:
           maxVertex: 10
           minVertex: 5
