@@ -67,7 +67,7 @@ def build_dataloader(config, args=None, return_dataset=False):
                                              sampler=val_sampler, 
                                              drop_last=True)
     #
-    viz_loader = torch.utils.data.DataLoader(val_dataset,
+    viz_loader = torch.utils.data.DataLoader(train_dataset,
                                              batch_size=1,
                                              shuffle=False, #(val_sampler is None),
                                              num_workers=num_workers,

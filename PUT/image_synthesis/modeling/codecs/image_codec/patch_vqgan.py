@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-
+from put.PUT.image_synthesis.modeling.modules.losses import *
 from put.PUT.image_synthesis.utils.misc import instantiate_from_config
 from put.PUT.image_synthesis.modeling.codecs.base_codec import BaseCodec
 from put.PUT.image_synthesis.modeling.modules.vqgan_loss.vqperceptual import VQLPIPSWithDiscriminator
@@ -896,9 +896,12 @@ class PatchConvDecoder2(nn.Module):
         super().__init__()
         self.in_channels = in_ch
         self.upsample_type = upsample_type
-        self.up_layer_with_image = up_layer_with_image
+        # self.up_layer_with_image = up_layer_with_image
+        self.up_layer_with_image = False
+        #修改
         self.smooth_mask_kernel_size = smooth_mask_kernel_size
-        self.requires_image = self.up_layer_with_image
+        # self.requires_image = self.up_layer_with_image
+        self.requires_image = False
         self.encoder_partial_conv = encoder_partial_conv
         self.add_noise_to_image = add_noise_to_image
         self.num_res_block_after_resolution_change = num_res_block_after_resolution_change
@@ -1006,7 +1009,8 @@ class PatchVQGAN(BaseCodec):
                  trainable=False,
                  train_part='all',
                  # ckpt_path=None,
-                 ckpt_path="/gemini / code / zhujinxian / pths / PUT / OUTPUT / tpami2024_p_vqvae_imagenet_res256 / checkpoint /last.pth",
+                 #导入模型
+                 ckpt_path="/gemini/code/zhujinxian/pths/PUT/OUTPUT/tpami2024_p_vqvae_imagenet_res256/checkpoint/last.pth",
                  token_shape=None,
                  resize_mask_type='pixel_shuffle',
                  combine_rec_and_gt=False,
@@ -1030,15 +1034,34 @@ class PatchVQGAN(BaseCodec):
             if v.shape[1] != 3:
                 v = v.repeat(1, 3, 1, 1)
             self.im_process_info[k] = v
-    
-        if lossconfig is not None and trainable:
-            self.loss = instantiate_from_config(lossconfig)
+
+        # if lossconfig is not None and trainable:
+        #     self.loss = instantiate_from_config(lossconfig)
+        # else:
+        #     self.loss = None
+        self.loss = EdgeConnectLoss(
+            gan_loss='nsgan',
+            g_gradient_loss_weight=2.0,
+            g_content_loss_weight=0.05,
+            g_style_loss_weight=100.0,
+            g_adv_loss_weight=0.05,
+            disc_start=200000,
+            content_start=150000,
+            style_start=150000,
+            gradient_start=150000,
+            norm_to_0_1=False
+        )
+        if isinstance(self.loss, EdgeConnectLoss):
+            print("self.loss is an instance of EdgeConnectLoss")
         else:
-            self.loss = None
-        
+            print("self.loss is NOT an instance of EdgeConnectLoss")
+
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
-        
+        # if isinstance(self.loss, EdgeConnectLoss):
+        #     print("self.loss is an instance of EdgeConnectLoss")
+        # else:
+        #     print("self.loss is NOT an instance of EdgeConnectLoss")
         self.trainable = trainable
         self.train_part = train_part
         self._set_trainable(train_part=self.train_part)
@@ -1117,6 +1140,7 @@ class PatchVQGAN(BaseCodec):
         Get the feature from image
         
         """
+        #不进行预处理
         data = self.pre_process(data)
         if mask is not None:
             data = self.multi_pixels_with_mask(data, mask, mask_pixel_value=mask_pixel_value)
@@ -1308,17 +1332,18 @@ class PatchVQGAN(BaseCodec):
             quant_out = self.quantize(x, token_type=token_type_erase, step=step, total_steps=total_steps)
             quant = quant_out['quantize']
             emb_loss = quant_out['quantize_loss']
-
+            #emb_loss,quant_out['quantize_loss']不知道为什么是0
             # recconstruction
             quant = self.post_quant_conv(quant)
-            if self.decoder.requires_image:
-                rec = self.decoder(quant, self.multi_pixels_with_mask(input, batch['mask']), mask=batch['mask'])
-            else:
-                rec = self.decoder(quant)
+            #更改，只传入image
+            # if self.decoder.requires_image:
+            #     rec = self.decoder(quant, self.multi_pixels_with_mask(input, batch['mask']), mask=batch['mask'])
+            # else:
+            rec = self.decoder(quant)
             # save some tensors for 
             self.input_tmp = input 
             self.rec_tmp = rec 
-
+            edgeloss=True
             if isinstance(self.loss, VQLPIPSWithDiscriminator):
                 output = self.loss(codebook_loss=emb_loss,
                                 inputs=input, 
@@ -1327,6 +1352,7 @@ class PatchVQGAN(BaseCodec):
                                 global_step=step, 
                                 last_layer=self.get_last_layer())
             elif isinstance(self.loss, EdgeConnectLoss):
+            # elif edgeloss:
                 other_loss = {}
                 for k in quant_out:
                     if 'loss' in k:
@@ -1359,6 +1385,7 @@ class PatchVQGAN(BaseCodec):
                     output[k] = v
 
         elif name == 'discriminator':
+            # edgeloss=True
             if isinstance(self.loss, VQLPIPSWithDiscriminator):
                 output = self.loss(codebook_loss=None,
                                 inputs=self.input_tmp, 
@@ -1367,6 +1394,7 @@ class PatchVQGAN(BaseCodec):
                                 global_step=step, 
                                 last_layer=self.get_last_layer())
             elif isinstance(self.loss, EdgeConnectLoss):
+            # elif edgeloss:
                 if self.loss.norm_to_0_1:
                     loss_im = self.post_process(self.input_tmp) / 255.0
                     loss_rec = self.post_process(self.rec_tmp) / 255.0

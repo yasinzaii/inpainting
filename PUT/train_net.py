@@ -99,7 +99,7 @@ def get_args():
         args.auto_resume = True
     else:
         if args.name == '':
-            args.name = os.path.basename(args.config_file).replace('.yaml', '')
+            args.name = os.path.basename(args.config_file).replace('pvqvae_sintel.yaml', '')
         if args.timestamp:
             assert not args.auto_resume, "for timstamp, auto resume is hard to find the save directory"
             time_str = time.strftime('%Y-%m-%d-%H-%M')
