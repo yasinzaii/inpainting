@@ -58,8 +58,8 @@ class Solver(object):
 
         self.last_epoch = -1
         self.last_iter = -1
-        self.ckpt_dir = "/gemini/code/zhujinxian/pths/PUT/OUTPUT/pvqvae_finetune3" + "/checkpoint"
-        self.image_dir = "/gemini/code/zhujinxian/pths/PUT/OUTPUT/pvqvae_finetune3" + "/images"
+        self.ckpt_dir = "/gemini/code/zhujinxian/pths/PUT/OUTPUT/pvqvae_finetune5" + "/checkpoint"
+        self.image_dir = "/gemini/code/zhujinxian/pths/PUT/OUTPUT/pvqvae_finetune5" + "/images"
         os.makedirs(self.ckpt_dir, exist_ok=True)
         os.makedirs(self.image_dir, exist_ok=True)
 
@@ -634,8 +634,8 @@ class Solver(object):
 
     def log_validation(self, save_dir):
         self.model.eval()
-        list_path = "/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/val/list.txt"
-        # list_path = "/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/train/list.txt"
+        # list_path = "/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/val/list.txt"
+        list_path = "/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/train/list.txt"
         with open(list_path, 'r') as f:
             image_relative_paths = f.read().splitlines()
         list = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90]
@@ -709,27 +709,29 @@ class Solver(object):
         self.logger.log_info('{}: global rank {}: start training...'.format(self.args.name, self.args.global_rank),
                              check_primary=False)
         for epoch in range(start_epoch, self.max_epochs):
-            train = True
-            if self.max_iterations > 0 and self.last_iter >= self.max_iterations:
-                train = False
-            if train:
-                self.train_epoch()
-                self.save(force=True)
-                self.validate_epoch()
+            # train = True
+            # if self.max_iterations > 0 and self.last_iter >= self.max_iterations:
+            #     train = False
+            # if train:
+            #     self.train_epoch()
+            #     self.save(force=True)
+            #     self.validate_epoch()
                 # save_dir = "/gemini/code/zhujinxian/codeRESULTS/train_validation1"
-                save_dir="/gemini/code/zhujinxian/codeRESULTS/train_validation3_pvqvae"
+            save_dir="/gemini/code/zhujinxian/codeRESULTS/train_validation5_pvqvae_trainsample"
             if epoch % 50 == 0 or epoch == self.max_epochs - 1 or epoch == start_epoch:
+                print("start")
                 dir = save_dir + "/epoch" + str(epoch)
                 os.makedirs(dir, exist_ok=True)
                 # self.log_validation(dir)
                 self.pvqvae_log_validation(dir)
+                print("end")
             #log_validation 输入validation_dataloader,model,save_dir,存输入的img1,img2以及mask还有输出inpainting后的img1,img2，以及还原的gt光流和i还原的npainting光流
 
     def pvqvae_log_validation(self,save_dir):
         # save_dir = "/gemini/code/zhujinxian/dataset/MPI_Sintel/pvqvae_validation1"
         self.model.eval()
-        list_path = "/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/val/list.txt"
-        # list_path = "/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/train/list.txt"
+        # list_path = "/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/val/list.txt"
+        list_path = "/gemini/code/zhujinxian/dataset/MPI_Sintel/version2/train_data/train/list.txt"
         with open(list_path, 'r') as f:
             image_relative_paths = f.read().splitlines()
         list = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90]

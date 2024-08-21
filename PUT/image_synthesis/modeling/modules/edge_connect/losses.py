@@ -313,15 +313,21 @@ class EdgeConnectLoss(nn.Module):
 
             out = {}
             gen_loss = 0
-
+            # if self.g_adv_loss_weight > 0 and step >= self.disc_start:
+            #     gen_fake, _ = self.discriminator(reconstruction)
+            #     gen_adv_loss = self.adversarial_loss(gen_fake, True, False) * self.g_adv_loss_weight
+            #     out['adv_loss'] = gen_adv_loss
+            #     gen_loss = gen_loss + gen_adv_loss
             # if self.g_rec_loss_weight > 0:
             #     gen_rec_loss = self.l1_loss(reconstruction, image) * self.g_rec_loss_weight / torch.mean(mask)
             #     out['rec_loss'] = gen_rec_loss
             #     gen_loss = gen_loss + gen_rec_loss
-            if self.g_gradient_loss_weight > 0 and step >= self.gradient_start:
-                gen_grad_loss = self.image_gradient_loss(reconstruction, image) * self.g_gradient_loss_weight
-                out['grad_loss'] = gen_grad_loss
-                gen_loss = gen_loss + gen_grad_loss
+            self.gradient_start=-1
+            self.content_start=-1
+            # if self.g_gradient_loss_weight > 0 and step >= self.gradient_start:
+            #     gen_grad_loss = self.image_gradient_loss(reconstruction, image) * self.g_gradient_loss_weight
+            #     out['grad_loss'] = gen_grad_loss
+            #     gen_loss = gen_loss + gen_grad_loss
             if self.g_content_loss_weight > 0 and step >= self.content_start:
                 gen_content_loss = self.perceptual_loss(reconstruction, image) * self.g_content_loss_weight
                 out['content_loss'] = gen_content_loss

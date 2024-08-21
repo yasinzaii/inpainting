@@ -1332,7 +1332,7 @@ class PatchVQGAN(BaseCodec):
             quant_out = self.quantize(x, token_type=token_type_erase, step=step, total_steps=total_steps)
             quant = quant_out['quantize']
             emb_loss = quant_out['quantize_loss']
-
+            #emb_loss,quant_out['quantize_loss']不知道为什么是0
             # recconstruction
             quant = self.post_quant_conv(quant)
             #更改，只传入image

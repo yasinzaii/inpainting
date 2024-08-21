@@ -57,9 +57,9 @@ model:
         g_style_loss_weight: 100.0
         g_adv_loss_weight: 0.05
         disc_start: 200000
-        content_start: 150000
+        content_start: 0
         style_start: 150000
-        gradient_start: 150000
+        gradient_start: 0
         norm_to_0_1: False
 
 solver:
